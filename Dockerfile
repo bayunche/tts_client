@@ -11,11 +11,9 @@ COPY . /app
 RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 # 安装ffmpeg，pydub需要它来处理音频文件
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-    apt-get -o Acquire::AllowInsecureRepositories=true \
-            -o Acquire::AllowDowngradeToInsecureRepositories=true update && \
-    apt-get install -y --allow-unauthenticated ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.debian.org|https://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list && \
+    apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # 暴露端口
 EXPOSE 4552
