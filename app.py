@@ -245,6 +245,137 @@ def batch_tts():
         logging.exception(f"处理批量 TTS 请求时发生未预期错误: {e}")
         return jsonify({"error": f"处理批量 TTS 请求时发生错误: {str(e)}"}), 500
 
+@app.route('/convert_tts', methods=['POST'])
+def convert_tts():
+    """
+    调用TTS接口并返回音频下载链接
+    ---
+    consumes:
+      - application/json
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              text:
+                type: string
+                description: 要转换为语音的文本
+              model_name:
+                type: string
+                description: 要使用的模型名称
+              emotion:
+                type: string
+                default: ""
+                description: 情感（可选）
+              speed_factor:
+                type: number
+                format: float
+                default: 1.0
+                description: 语速因子（可选）
+              text_lang:
+                type: string
+                default: "中英混合"
+                description: 文本语言（可选，例如  "中文", "中英混合"）
+              speed_facter: # 修正参数名为 speed_facter
+                type: number
+                format: float
+                default: 1.0
+                description: 语速因子（可选）
+            required:
+              - text
+              - model_name
+    responses:
+      200:
+        description: 包含音频下载链接的JSON对象
+        schema:
+          type: object
+          properties:
+            url:
+              type: string
+              description: 推理后音频文件的下载URL
+      400:
+        description: 请求参数错误
+      500:
+        description: TTS服务调用失败或音频处理失败
+    """
+    logging.info("收到 /convert_tts 请求")
+    inference_requests = request.get_json()
+    logging.info(f"接收到的原始请求数据: {inference_requests}")
+    if not inference_requests or not isinstance(inference_requests, list):
+        logging.error("请求体为空或格式不正确，应为对象数组")
+        return jsonify({"error": "请求体为空或格式不正确，应为对象数组"}), 400
+
+    for i, req in enumerate(inference_requests):
+        if not isinstance(req, dict):
+            logging.error(f"请求数组中第 {i} 个元素不是对象")
+            return jsonify({"error": f"请求数组中第 {i} 个元素不是对象"}), 400
+        if "text" not in req or not isinstance(req["text"], str):
+            logging.error(f"请求对象中缺少 'text' 字段或其格式不正确 (索引: {i})")
+            return jsonify({"error": f"请求对象中缺少 'text' 字段或其格式不正确 (索引: {i})"}), 400
+        if "model_name" not in req or not isinstance(req["model_name"], str):
+            logging.error(f"请求对象中缺少 'model_name' 字段或其格式不正确 (索引: {i})")
+            return jsonify({"error": f"请求对象中缺少 'model_name' 字段或其格式不正确 (索引: {i})"}), 400
+    
+    logging.info(f"收到 {len(inference_requests)} 个 TTS 推理请求")
+    try:
+        processed_requests = []
+        for req in inference_requests:
+            processed_req = req.copy()
+            if "speed_factor" in processed_req:
+                processed_req["speed_facter"] = processed_req.pop("speed_factor")
+            
+            if "text_lang" in processed_req and processed_req["text_lang"] == "zh":
+                processed_req["text_lang"] = "中英混合"
+            processed_requests.append(processed_req)
+        
+        logging.info(f"传递给 client_batch_tts 的数据: {processed_requests}")
+        for i, req in enumerate(processed_requests):
+            logging.info(f"App: 准备发送给 TTS 客户端的第 {i+1} 个请求 - text_lang: {req.get('text_lang')}, speed_facter: {req.get('speed_facter')}")
+
+        generated_audios = client_batch_tts(
+            inference_requests=processed_requests
+        )
+        logging.info(f"TTS 客户端返回 {len(generated_audios)} 个音频数据")
+
+        if not generated_audios:
+            logging.error("TTS 客户端没有生成任何音频数据")
+            return jsonify({"error": "没有生成任何音频数据"}), 500
+
+        combined_audio = AudioSegment.empty()
+        logging.info("开始拼接 TTS 生成的音频")
+        for i, audio_bytes in enumerate(generated_audios):
+            if audio_bytes:
+                try:
+                    audio = AudioSegment.from_wav(io.BytesIO(audio_bytes))
+                    combined_audio += audio
+                    logging.info(f"已拼接第 {i+1} 个音频片段")
+                except Exception as audio_e:
+                    logging.exception(f"处理第 {i+1} 个音频片段时发生错误: {audio_e}")
+            else:
+                logging.warning(f"第 {i+1} 个文本的音频生成失败，将跳过。")
+
+        if not combined_audio.duration_seconds > 0:
+            logging.error("合并后的音频为空，可能所有文本的音频都生成失败")
+            return jsonify({"error": "合并后的音频为空，可能所有文本的音频都生成失败"}), 500
+
+        output_filename = "converted_tts.mp3"
+        output_file = os.path.join(OUTPUT_FOLDER, output_filename)
+        logging.info(f"导出拼接后的 TTS 音频到: {output_file}")
+        combined_audio.export(output_file, format="mp3")
+        logging.info("TTS 拼接音频导出成功")
+
+        download_url = f"{request.url_root}output/{output_filename}"
+        logging.info(f"生成的下载 URL: {download_url}")
+        return jsonify({"url": download_url})
+
+    except Exception as e:
+        logging.exception(f"处理 convert_tts 请求时发生未预期错误: {e}")
+        return jsonify({"error": f"处理 convert_tts 请求时发生错误: {str(e)}"}), 500
+
 @app.route('/')
 def index():
     return """
@@ -253,6 +384,7 @@ def index():
     接口说明:<br>
     - POST /concatenate_wavs : 上传WAV文件进行拼接<br>
     - POST /batch_tts : 批量调用TTS接口并拼接音频<br>
+    - POST /convert_tts : 调用TTS接口并返回音频下载链接<br>
     """
 
 if __name__ == '__main__':
