@@ -1,23 +1,26 @@
-# 使用官方Python运行时作为父镜像
+# 使用官方 Python 运行时作为父镜像
 FROM python:3.9-slim-buster
 
 # 设置工作目录
 WORKDIR /app
 
-# 将当前目录内容复制到容器中的/app
-COPY . /app
+# 设置国内 PyPI 源为默认
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
-# 安装所需的包
-RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
-
-# 安装ffmpeg，pydub需要它来处理音频文件
+# 安装依赖之前先更新系统包管理器索引，并安装 ffmpeg
 RUN sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
     sed -i 's|http://security.debian.org|https://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list && \
-    apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 暴露端口
+# 将当前目录内容复制到容器中的 /app
+COPY . /app
+
+# 安装 Python 依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 暴露端口（根据你的服务监听的端口）
 EXPOSE 4552
 
-# 定义环境变量
-# 运行app.py
+# 设置容器启动时默认执行的命令
 CMD ["python", "app.py"]
