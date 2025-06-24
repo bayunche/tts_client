@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  wav-service:
+    build: .
+    ports:
+      - "4552:4552"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./output:/app/output
+    environment:
+      - FLASK_ENV=production
+    restart: unless-stopped
+
+  tts-service:
+    image: python:3.9
+    command: >
+      bash -c "pip install requests &&
+      python -c 'import requests; print(\"TTS service available\")'"
+    depends_on:
+      - wav-service
