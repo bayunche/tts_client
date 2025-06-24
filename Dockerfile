@@ -8,8 +8,9 @@ WORKDIR /app
 ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 # 安装依赖之前先更新系统包管理器索引，并安装 ffmpeg
-RUN sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
-    sed -i 's|http://security.debian.org|https://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list && \
+RUN echo "deb [trusted=yes] http://mirrors.aliyun.com/debian buster main contrib non-free" > /etc/apt/sources.list && \
+    echo "deb [trusted=yes] http://mirrors.aliyun.com/debian buster-updates main contrib non-free" >> /etc/apt/sources.list && \
+    echo "deb [trusted=yes] http://mirrors.aliyun.com/debian-security buster/updates main contrib non-free" >> /etc/apt/sources.list && \
     apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
