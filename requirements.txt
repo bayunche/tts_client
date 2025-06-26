@@ -2,3 +2,9 @@ Flask
 pydub
 flasgger
 requests
+akshare 
+httpx 
+beautifulsoup4  
+pydantic
+playwright 
+tushare

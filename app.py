@@ -1,13 +1,23 @@
 import os
 import re
 import requests
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file, jsonify, current_app
 from pydub import AudioSegment
 from pydub.playback import play
 import io
 from flasgger import Swagger
 from tts_client import batch_tts as client_batch_tts # 导入 tts_client 中的 batch_tts 函数
 import logging
+import akshare as ak
+import httpx
+from bs4 import BeautifulSoup
+import tushare as ts
+from datetime import datetime
+from playwright.sync_api import sync_playwright # 新增导入
+from dateutil.parser import parse as pdt # 新增导入
+
+# 获取外部可访问的基 URL，如果未设置则为 None
+EXTERNAL_BASE_URL = os.environ.get("EXTERNAL_BASE_URL")
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,10 +32,123 @@ if not os.path.exists(UPLOAD_FOLDER):
 if not os.path.exists(OUTPUT_FOLDER):
     os.makedirs(OUTPUT_FOLDER)
 
+ts.set_token(os.getenv("TUSHARE_TOKEN", "f0780a77506051c777d5aff4c38f6891f792ffcd6bdf100278b22546"))
+pro = ts.pro_api()
+
 def natural_sort_key(s):
     """用于自然排序的键函数，处理文件名中的数字前缀"""
     return [int(text) if text.isdigit() else text.lower()
             for text in re.split('([0-9]+)', s)]
+
+
+# ------------- 新增新闻聚合接口 -------------
+def fetch_eastmoney_news(frm: datetime, to: datetime):
+    news = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto("https://finance.eastmoney.com/a/cgnjj.html", timeout=60000)
+        page.wait_for_selector("div.list", timeout=30000)
+        html = page.content()
+        browser.close()
+    soup = BeautifulSoup(html, "lxml")
+    for item in soup.select("div.list li"):
+        a = item.select_one("a")
+        span = item.select_one("span")
+        if not a or not span:
+            continue
+        title = a.get_text(strip=True)
+        url = a["href"]
+        time_str = span.get_text(strip=True)
+        try:
+            ts = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+        except:
+            continue
+        if frm <= ts <= to:
+            news.append({
+                "source": "东方财富",
+                "title": title,
+                "url": url,
+                "published": ts.isoformat()
+            })
+    return news
+
+def fetch_sector_movers():
+    movers = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto("https://quote.eastmoney.com/center/boardlist.html", timeout=60000)
+        page.wait_for_selector("table", timeout=30000)
+        html = page.content()
+        browser.close()
+    soup = BeautifulSoup(html, "lxml")
+    for row in soup.select("table tbody tr")[:5]:
+        cols = row.select("td")
+        if len(cols) < 7:
+            continue
+        movers.append({
+            "sector": cols[1].get_text(strip=True),
+            "symbol": cols[2].get_text(strip=True),
+            "name": cols[3].get_text(strip=True),
+            "price": cols[4].get_text(strip=True),
+            "change": cols[5].get_text(strip=True),
+            "percent": cols[6].get_text(strip=True),
+        })
+    return movers
+
+def fetch_market_summary():
+    summary = {}
+    try:
+        df_sh = ak.index_sse_summary()
+        summary['sh_index'] = float(df_sh.loc[df_sh['指数名称']=='上证综指','最新价'].values[0])
+    except:
+        summary['sh_index'] = None
+
+    try:
+        df_sz = ak.index_szse_summary()
+        summary['sz_index'] = float(df_sz.loc[0,'最新价'])
+    except:
+        summary['sz_index'] = None
+
+    try:
+        df_gold = ak.macro_cons_gold_volume()
+        summary['gold_volume'] = float(df_gold.loc[0,'当日成交量'])
+    except:
+        summary['gold_volume'] = None
+
+    try:
+        df_oil = ak.macro_usa_api_crude_stock()
+        summary['crude_oil'] = float(df_oil.loc[0,'原油库存'])
+    except:
+        summary['crude_oil'] = None
+
+    return summary
+
+@app.route('/news_aggregate', methods=['GET'])
+def news_aggregate():
+    from_s = request.args.get('from')
+    to_s = request.args.get('to')
+    if not (from_s and to_s):
+        return jsonify(error="缺少 from 或 to 参数"), 400
+    try:
+        frm = pdt(from_s)
+        to = pdt(to_s)
+    except Exception as e:
+        return jsonify(error=f"时间解析失败: {e}"), 400
+
+    news = fetch_eastmoney_news(frm, to)
+    movers = fetch_sector_movers()
+    market = fetch_market_summary()
+
+    return jsonify(
+        intl_news=news,
+        cndata_news=news,
+        market_summary=market,
+        sector_movers=movers
+    )
+
+
 
 @app.route('/concatenate_wavs', methods=['POST'])
 def concatenate_wavs():
@@ -368,13 +491,48 @@ def convert_tts():
         combined_audio.export(output_file, format="mp3")
         logging.info("TTS 拼接音频导出成功")
 
-        download_url = f"{request.url_root}output/{output_filename}"
+        # 根据 EXTERNAL_BASE_URL 环境变量构建下载 URL
+        if EXTERNAL_BASE_URL:
+            download_url = f"{EXTERNAL_BASE_URL}/output/{output_filename}"
+        else:
+            # 如果没有设置 EXTERNAL_BASE_URL，则使用 request.url_root
+            download_url = f"{request.url_root}output/{output_filename}"
+            
         logging.info(f"生成的下载 URL: {download_url}")
         return jsonify({"url": download_url})
 
     except Exception as e:
         logging.exception(f"处理 convert_tts 请求时发生未预期错误: {e}")
         return jsonify({"error": f"处理 convert_tts 请求时发生错误: {str(e)}"}), 500
+
+@app.route('/output/<filename>')
+def download_file(filename):
+    """
+    提供 output 文件夹中的文件下载
+    ---
+    parameters:
+      - name: filename
+        in: path
+        type: string
+        required: true
+        description: 要下载的文件名
+    responses:
+      200:
+        description: 请求的文件
+        schema:
+          type: file
+      404:
+        description: 文件未找到
+    """
+    logging.info(f"收到 /output/{filename} 请求，尝试从 {OUTPUT_FOLDER} 提供文件")
+    try:
+        return send_file(os.path.join(OUTPUT_FOLDER, filename), as_attachment=True, download_name=filename)
+    except FileNotFoundError:
+        logging.error(f"文件 {filename} 在 {OUTPUT_FOLDER} 中未找到")
+        return jsonify({"error": "文件未找到"}), 404
+    except Exception as e:
+        logging.exception(f"提供文件 {filename} 时发生错误: {e}")
+        return jsonify({"error": f"提供文件时发生错误: {str(e)}"}), 500
 
 @app.route('/')
 def index():

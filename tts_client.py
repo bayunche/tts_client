@@ -39,7 +39,7 @@ def _process_single_tts_request(
         "seed": -1,
         "sample_steps": 16,
         "if_sr": False,
-        "dl_url": "http://117.50.162.197:8000"
+        "dl_url": "http://host.docker.internal:8000"
     }
     logging.info(f"TTS 客户端：已为第 {index+1} 个请求构建 payload (部分): text='{payload['text'][:30]}...', model_name='{payload.get('model_name')}', emotion='{payload.get('emotion')}', speed_facter='{payload.get('speed_facter')}', text_lang='{payload.get('text_lang')}'")
     logging.info(f"TTS 客户端：第 {index+1} 个请求完整 payload: {payload}")
@@ -52,6 +52,10 @@ def _process_single_tts_request(
         response_json = response.json()
         audio_url = response_json.get("audio_url")
         if audio_url:
+            # 替换 127.0.0.1:8000 为 host.docker.internal:8000
+            if "127.0.0.1:8000" in audio_url:
+                audio_url = audio_url.replace("127.0.0.1:8000", "host.docker.internal:8000")
+            
             logging.info(f"TTS 客户端：第 {index+1} 个请求获取到音频URL: {audio_url}")
             audio_response = requests.get(audio_url, timeout=600)
             audio_response.raise_for_status()
@@ -75,7 +79,7 @@ def _process_single_tts_request(
 
 def batch_tts(
     inference_requests: List[Dict[str, Any]],
-    base_url: str = "http://117.50.162.197:8000"
+    base_url: str = "http://host.docker.internal:8000"
 ) -> List[bytes]:
     """
     为文本列表生成批量 TTS 音频数据，支持并发下载。

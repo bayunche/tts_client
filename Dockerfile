@@ -20,6 +20,8 @@ COPY . /app
 # 安装 Python 依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN playwright install chromium
+
 # 暴露端口（根据你的服务监听的端口）
 EXPOSE 4552
 

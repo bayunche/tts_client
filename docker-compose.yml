@@ -10,12 +10,6 @@ services:
       - ./output:/app/output
     environment:
       - FLASK_ENV=production
+      - EXTERNAL_BASE_URL=http://127.0.0.1:4552 # 请根据您的实际外部访问地址修改此值
     restart: unless-stopped
 
-  tts-service:
-    image: python:3.9
-    command: >
-      bash -c "pip install requests &&
-      python -c 'import requests; print(\"TTS service available\")'"
-    depends_on:
-      - wav-service
