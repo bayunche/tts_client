@@ -23,7 +23,7 @@ def _process_single_tts_request(
         "text": req.get("text", ""),
         "speed_facter": req.get("speed_facter", 1), # 参数名修正为 speed_facter
         "text_lang": req.get("text_lang", "中英混合"), # 根据 curl 示例调整默认值
-        "version": "v4",
+        "version": req.get("version", "v4"), # 从请求中获取 version，默认为 v4
         "prompt_text_lang": "中文",
         "top_k": 10,
         "top_p": 1,
@@ -37,7 +37,7 @@ def _process_single_tts_request(
         "parallel_infer": True,
         "repetition_penalty": 1.35,
         "seed": -1,
-        "sample_steps": 16,
+        "sample_steps": 32,
         "if_sr": False,
         "dl_url": "http://host.docker.internal:8000"
     }

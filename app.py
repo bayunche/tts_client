@@ -1,15 +1,12 @@
 import os
 import re
-import requests
 from flask import Flask, request, send_file, jsonify, current_app
 from pydub import AudioSegment
-from pydub.playback import play
 import io
 from flasgger import Swagger
 from tts_client import batch_tts as client_batch_tts # 导入 tts_client 中的 batch_tts 函数
 import logging
 import akshare as ak
-import httpx
 from bs4 import BeautifulSoup
 import tushare as ts
 from datetime import datetime
@@ -274,6 +271,10 @@ def batch_tts():
                 format: float
                 default: 1.0
                 description: 语速因子（可选）
+              version:
+                type: string
+                default: "v4"
+                description: TTS服务版本（可选）
             required:
               - text
               - model_name
@@ -305,7 +306,7 @@ def batch_tts():
         if "model_name" not in req or not isinstance(req["model_name"], str):
             logging.error(f"请求对象中缺少 'model_name' 字段或其格式不正确 (索引: {i})")
             return jsonify({"error": f"请求对象中缺少 'model_name' 字段或其格式不正确 (索引: {i})"}), 400
-        # 可以添加更多对 emotion, speed_factor, text_lang 的验证，如果需要的话
+        # 可以添加更多对 emotion, speed_factor, text_lang, version 的验证，如果需要的话
     
     logging.info(f"收到 {len(inference_requests)} 个 TTS 推理请求")
     try:
