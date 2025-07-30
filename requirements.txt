@@ -8,3 +8,4 @@ beautifulsoup4
 pydantic
 playwright 
 tushare
+flask_cors

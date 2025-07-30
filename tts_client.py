@@ -28,7 +28,7 @@ def _process_single_tts_request(
         "top_k": 10,
         "top_p": 1,
         "temperature": 1,
-        "text_split_method": "按标点符号切",
+        "text_split_method": "按中文句号。切",
         "batch_size": 10,
         "batch_threshold": 0.75,
         "split_bucket": True,
@@ -40,6 +40,7 @@ def _process_single_tts_request(
         "sample_steps": 32,
         "if_sr": False,
         "dl_url": "http://host.docker.internal:8000"
+        # "dl_url": "http://127.0.0.1:8000"
     }
     logging.info(f"TTS 客户端：已为第 {index+1} 个请求构建 payload (部分): text='{payload['text'][:30]}...', model_name='{payload.get('model_name')}', emotion='{payload.get('emotion')}', speed_facter='{payload.get('speed_facter')}', text_lang='{payload.get('text_lang')}'")
     logging.info(f"TTS 客户端：第 {index+1} 个请求完整 payload: {payload}")
@@ -69,8 +70,8 @@ def _process_single_tts_request(
         logging.exception(f"TTS 客户端：第 {index+1} 个请求超时，URL: {infer_single_url}")
         return index, b""
     except requests.exceptions.RequestException as e:
-        status_code = response.status_code if response else 'N/A'
-        response_text = response.text if response else 'N/A'
+        status_code = getattr(e.response, "status_code", "N/A")
+        response_text = getattr(e.response, "text", "N/A")
         logging.exception(f"TTS 客户端：第 {index+1} 个请求失败: {e}, 状态码: {status_code}, 响应内容: {response_text}")
         return index, b""
     except Exception as e:
@@ -80,6 +81,7 @@ def _process_single_tts_request(
 def batch_tts(
     inference_requests: List[Dict[str, Any]],
     base_url: str = "http://host.docker.internal:8000"
+    # base_url: str = "http://127.0.0.1:8000"
 ) -> List[bytes]:
     """
     为文本列表生成批量 TTS 音频数据，支持并发下载。

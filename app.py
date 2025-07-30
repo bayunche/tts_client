@@ -12,6 +12,7 @@ import tushare as ts
 from datetime import datetime
 from playwright.sync_api import sync_playwright # 新增导入
 from dateutil.parser import parse as pdt # 新增导入
+from flask_cors import CORS
 
 # 获取外部可访问的基 URL，如果未设置则为 None
 EXTERNAL_BASE_URL = os.environ.get("EXTERNAL_BASE_URL")
@@ -21,6 +22,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 app = Flask(__name__)
 Swagger(app)
+
+CORS(app)
 
 UPLOAD_FOLDER = 'uploads'
 OUTPUT_FOLDER = 'output'
@@ -471,16 +474,25 @@ def convert_tts():
 
         combined_audio = AudioSegment.empty()
         logging.info("开始拼接 TTS 生成的音频")
+        current_time = 0.0
         for i, audio_bytes in enumerate(generated_audios):
             if audio_bytes:
                 try:
                     audio = AudioSegment.from_wav(io.BytesIO(audio_bytes))
+                    duration = audio.duration_seconds
+                    processed_requests[i]["start"] = round(current_time, 3)
+                    processed_requests[i]["end"] = round(current_time + duration, 3)
+                    current_time += duration
                     combined_audio += audio
-                    logging.info(f"已拼接第 {i+1} 个音频片段")
+                    logging.info(f"已拼接第 {i+1} 个音频片段，start={processed_requests[i]['start']}, end={processed_requests[i]['end']}")
                 except Exception as audio_e:
                     logging.exception(f"处理第 {i+1} 个音频片段时发生错误: {audio_e}")
+                    processed_requests[i]["start"] = round(current_time, 3)
+                    processed_requests[i]["end"] = round(current_time, 3)
             else:
                 logging.warning(f"第 {i+1} 个文本的音频生成失败，将跳过。")
+                processed_requests[i]["start"] = round(current_time, 3)
+                processed_requests[i]["end"] = round(current_time, 3)
 
         if not combined_audio.duration_seconds > 0:
             logging.error("合并后的音频为空，可能所有文本的音频都生成失败")
@@ -500,7 +512,10 @@ def convert_tts():
             download_url = f"{request.url_root}output/{output_filename}"
             
         logging.info(f"生成的下载 URL: {download_url}")
-        return jsonify({"url": download_url})
+        return jsonify({
+            "url": download_url,
+            "results": processed_requests
+        })
 
     except Exception as e:
         logging.exception(f"处理 convert_tts 请求时发生未预期错误: {e}")
@@ -547,4 +562,4 @@ def index():
     """
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=4552, debug=True) # 调试模式方便开发，生产环境请关闭
+    app.run(host='0.0.0.0', port=4552, debug=False) # 调试模式方便开发，生产环境请关闭
